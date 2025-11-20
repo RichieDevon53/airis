@@ -3,7 +3,7 @@ Main entry point for the Airis application.
 Handles initialization and starts the main application.
 """
 import sys
-from .ui.main_window import GlassEffectTrayApp
+from airis_frontend_v3.ui.main_window import GlassEffectTrayApp
 
 def main():
     """Main application entry point."""

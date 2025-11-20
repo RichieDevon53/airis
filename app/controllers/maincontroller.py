@@ -8,7 +8,8 @@ from app.services.chain.instructionchainV4 import EnhancedInstructionChain
 from app.services.chain.boardchain import BoardChain
 from app.utils.screenshot import screenshot
 from config.setting import env
-from langchain.schema.runnable import RunnableLambda, RunnablePassthrough
+from langchain_core.runnables.base import RunnableLambda
+from langchain_core.runnables.passthrough import RunnablePassthrough
 
 class maincontroller:
     def __init__(self):
