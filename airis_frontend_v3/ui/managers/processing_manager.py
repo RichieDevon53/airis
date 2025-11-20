@@ -28,12 +28,10 @@ class ProcessingManager:
                 }
             else: 
                 response_text = controller(string)
-                valid_output = [respond for key, respond in response_text["output"].items() if respond is not None]
-            
-            print(response_text)
+                valid_output = response_text
             
             self.app.command_queue.put(
-                lambda: self.update_response_text(valid_output[0])
+                lambda: self.update_response_text(valid_output)
             )
         except Exception as e:
             error_message = f"An error occurred during processing: {e}"
