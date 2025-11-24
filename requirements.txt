@@ -1,0 +1,14 @@
+pydantic-settings
+langchain-mcp-adapters
+PyQt5
+Pillow
+langchain
+pyautogui
+langchain-google-vertexai
+langchain-aws
+langchain-openai
+langchain-google-genai
+pynput
+pystray
+langchain-core
+opencv-python

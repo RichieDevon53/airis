@@ -46,11 +46,12 @@ class WidgetFactory:
         # Search input field
         self.search_entry = tk.Entry(
             search_container,
-            font=self.fonts['input'],
+            font=(self.fonts['input'], 14),
             bg=self.colors['bg_glass'],
             fg=self.colors['text_primary'],
             relief='flat',
             bd=0,
+            width=30,
             highlightthickness=0,
         )
         self.search_entry.grid(row=0, column=2, sticky='ew', ipady=15, ipadx=15)

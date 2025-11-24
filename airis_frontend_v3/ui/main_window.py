@@ -17,7 +17,7 @@ from .managers.tray_manager import TrayManager
 from .managers.hotkey_manager import HotkeyManager
 from .components.blinking_eye import BlinkingEyeWindow
 from .managers.history_manager import HistoryManager
-# from .history_window import HistoryWindow
+from .history_window import HistoryWindow
 # from app.controllers.maincontroller import controller
 
 class GlassEffectTrayApp:
@@ -120,7 +120,7 @@ class GlassEffectTrayApp:
         """Shows the history window."""
         if self.history_window is None or not self.history_window.window.winfo_exists():
             pass
-            # self.history_window = HistoryWindow(self)
+            self.history_window = HistoryWindow(self)
         else:
             self.history_window.show()
 

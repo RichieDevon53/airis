@@ -2,6 +2,8 @@
 Modern card-based History window for the Airis application.
 Displays a sleek, card-based interface showing recent AI chat request history.
 """
+from PIL import Image, ImageTk
+from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from datetime import datetime
@@ -453,6 +455,29 @@ class HistoryWindow:
         # Header
         header_frame = tk.Frame(dialog, bg=self.colors['bg_primary'])
         header_frame.pack(fill=tk.X, padx=20, pady=(20, 0))
+
+        # === Image Section (if available) ===
+        home_dir = Path.home()
+        airis_images_dir = home_dir / ".airis" / "images"
+        image_path = airis_images_dir / f"history_{self.selected_entry.id}.png"
+        try:
+            # Load and resize image (optional)
+            img = Image.open(image_path)
+            img.thumbnail((800, 400))  # Resize to fit dialog
+            photo = ImageTk.PhotoImage(img)
+
+            image_label = tk.Label(header_frame, image=photo, bg=self.colors['bg_card'])
+            image_label.image = photo  # Keep a reference!
+            image_label.pack(pady=(0, 20), padx=10)
+        except Exception as e:
+            # Optionally show error in label
+            error_label = tk.Label(
+                header_frame,
+                text=f"Failed to load image: {e}",
+                fg="red",
+                bg=self.colors['bg_primary']
+            )
+            error_label.pack(pady=(0, 10))
         
         title_label = tk.Label(
             header_frame,

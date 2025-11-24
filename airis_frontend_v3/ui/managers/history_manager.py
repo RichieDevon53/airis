@@ -8,7 +8,9 @@ from datetime import datetime
 from typing import List, Dict, Any
 from dataclasses import dataclass, asdict
 from pathlib import Path
+import shutil
 
+from app.utils.screenshot import screenshot_history
 @dataclass
 class HistoryEntry:
     """Represents a single history entry."""
@@ -27,6 +29,7 @@ class HistoryManager:
     def __init__(self, app_instance):
         self.app = app_instance
         self.history_file = self._get_history_file_path()
+        self.history_images_file = self._get_history_images_file_path()
         self.history_entries: List[HistoryEntry] = []
         self.max_entries = 1000  # Maximum number of entries to store
         
@@ -39,6 +42,14 @@ class HistoryManager:
         airis_dir = home_dir / ".airis"
         airis_dir.mkdir(exist_ok=True)
         return airis_dir / "history.json"
+    
+    def _get_history_images_file_path(self) -> Path:
+        """Gets the path to the history file."""
+        # Create history images directory in user's home folder
+        home_dir = Path.home()
+        airis_images_dir = home_dir / ".airis" / "images"
+        airis_images_dir.mkdir(parents=True, exist_ok=True)
+        return airis_images_dir
     
     def add_entry(self, query: str, response: str, query_type: str, 
                   status: str = "completed", duration: float = 0.0, 
@@ -75,7 +86,7 @@ class HistoryManager:
                     if hasattr(entry, key):
                         setattr(entry, key, value)
                 break
-        self.save_history()
+        self.save_history(entry_id)
     
     def get_recent_entries(self, limit: int = 50) -> List[HistoryEntry]:
         """Gets the most recent entries."""
@@ -120,7 +131,7 @@ class HistoryManager:
             print(f"Error loading history: {e}")
             self.history_entries = []
     
-    def save_history(self):
+    def save_history(self, id=None):
         """Saves history to file."""
         try:
             data = {
@@ -129,6 +140,13 @@ class HistoryManager:
             }
             with open(self.history_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
+
+            if id:
+                screenshot_history(id)
+                file_path = f"D:/Project/airis/temp/history_{id}.png"
+                from_path = Path(file_path)
+                shutil.copy2(from_path, self.history_images_file)
+                os.remove(file_path)
         except Exception as e:
             print(f"Error saving history: {e}")
     

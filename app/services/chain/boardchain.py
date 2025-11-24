@@ -5,6 +5,7 @@ from langchain_core.runnables import RunnableLambda
 import pyautogui
 import subprocess
 import re
+import sys
 
 # SYSTEM_PROMPT = """
 # You are an educational AI that creates interactive pygame overlays to explain and highlight specific parts of images. 
@@ -75,7 +76,8 @@ Guidelines for creating the overlay:
 - Use precise pixel coordinates for all annotations based on your visual analysis
 - Use contrasting colors for annotations to ensure visibility against the screenshot background
 - Position text and explanations in areas that don't obscure important screenshot content
-- Save the overlay as png in "temp\\overlay.png"
+- Always save the overlay as png in "temp\\overlay.png"
+- Do not open image using Image.open() in this code, just save it
 
 Coordinate Analysis Instructions:
 - Carefully examine the screenshot to identify the exact locations of elements being discussed
@@ -320,7 +322,7 @@ class BoardChain:
                     temp_file.write(python_code)
             if executing:
                 subprocess.run(["python", "temp\\temp.py"])
-                subprocess.run(["python", "temp\\background.py"])
+                subprocess.run([sys.executable, "temp\\background.py"])
             return python_code
                 
         return "No Python code found in the response via parser."
