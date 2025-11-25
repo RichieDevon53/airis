@@ -42,11 +42,11 @@ class TrayManager:
             menu = pystray.Menu(
                 pystray.MenuItem("Show/Hide Window", self.toggle_window),
                 pystray.MenuItem("History", self.app_callback.show_history),
-                pystray.MenuItem("History-sample", pystray.Menu(
-                    pystray.MenuItem("History_1", lambda: None),
-                    pystray.MenuItem("History_2", lambda: None), 
-                    pystray.MenuItem("History_3", lambda: None)
-                )),
+                # pystray.MenuItem("History-sample", pystray.Menu(
+                #     pystray.MenuItem("History_1", lambda: None),
+                #     pystray.MenuItem("History_2", lambda: None), 
+                #     pystray.MenuItem("History_3", lambda: None)
+                # )),
                 pystray.MenuItem("Settings", self.show_settings),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("Exit", self.quit_app)

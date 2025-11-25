@@ -8,17 +8,16 @@ from app.services.chain.instructionchainV4 import EnhancedInstructionChain
 from app.services.chain.boardchain import BoardChain
 from app.utils.screenshot import screenshot
 from config.setting import env
-from langchain.schema.runnable import RunnableLambda, RunnablePassthrough
 
 class maincontroller:
     def __init__(self):
         self.llm = gen_ai.gemini()
         self.entry_chain = EntryChain(self.llm)
-        self.question_chain = QuestionChain(self.llm)
+        self.question_chain = QuestionChain(gen_ai.gemini(model="gemini-2.5-flash-lite"))
         self.instruction_chain = EnhancedInstructionChain(self.llm)
         self.board_chain = BoardChain(
-            primary_llm=self.llm,
-            secondary_llm=self.llm
+            primary_llm=gen_ai.gemini(model="gemini-2.5-pro"),
+            secondary_llm=gen_ai.gemini(model="gemini-2.5-pro")
             )
         # self.board_chain = BoardChain(self.gen_ai.pixtral())
         # self.board_chain = BoardChain(self.gen_ai.mini4o(max_tokens=16000))

@@ -2,6 +2,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     service_account_file: str
+    google_api_key: str
     gemini_model: str
     gemini_pro_model: str
     project_name: str
