@@ -12,3 +12,5 @@ pynput
 pystray
 langchain-core
 opencv-python
+ultralytics
+transformers

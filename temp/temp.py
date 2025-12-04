@@ -1,196 +1,195 @@
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import os
+from PIL import Image, ImageDraw, ImageFont
 
 # =============================================================================
-# 1. PROFESSIONAL STYLE CONFIGURATION
-# Centralized styling for easy theme modification.
+# == Professional Style Configuration
 # =============================================================================
-class Style:
-    """A class to hold all styling constants for the overlay."""
+# By centralizing style properties, we can easily theme the overlay and ensure
+# consistency across all visual elements.
+
+STYLE_CONFIG = {
     # --- Color Palette ---
-    # A modern, high-contrast palette.
-    PALETTE = {
-        "background_tint": (10, 20, 40, 120),    # Deep semi-transparent navy
-        "primary_highlight": (255, 190, 0, 255),  # Vibrant, warm gold
-        "glow_color": (255, 210, 80, 255),     # Softer gold for the glow effect
-        "text_primary": (240, 240, 245, 255),    # Soft off-white
-        "shadow_dark": (0, 0, 0, 150),          # Soft, transparent black for shadows
-        "title_background": (20, 30, 55, 230),   # Darker navy for title backdrop
-    }
-
-    # --- Typography ---
-    # Prioritizes modern fonts with fallbacks.
-    FONT_PATHS = ["seguisb.ttf", "arialbd.ttf"] # Try Segoe UI Semibold, then Arial Bold
-    TITLE_FONT_SIZE = 56
+    # A harmonious palette with a deep navy, vibrant gold, and clean off-white
+    # for a professional and accessible look.
+    "colors": {
+        "background_dim": (27, 38, 59, 128),  # Deep semi-transparent navy
+        "highlight_primary": (255, 215, 0, 255),  # Vibrant gold (Opaque)
+        "highlight_glow": (255, 225, 80, 100),  # Lighter gold (Semi-transparent for glow)
+        "text_primary": (240, 240, 245, 255),  # Soft off-white
+        "text_shadow": (10, 15, 25, 128),     # Subtle dark shadow
+        "title_background": (20, 30, 48, 220),   # Darker, more opaque navy
+    },
     
-    # --- Shape & Effects Styling ---
-    UPSCALE_FACTOR = 2  # For anti-aliasing; draw at 2x resolution then downscale.
-    CIRCLE_WIDTH = 4
-    CIRCLE_GLOW_LAYERS = 3
-    TITLE_RECT_RADIUS = 20
-    SHADOW_OFFSET = (4, 4)
+    # --- Typography ---
+    # Specifies preferred modern fonts with fallbacks for cross-platform compatibility.
+    "typography": {
+        "preferred_fonts": ["Verdana.ttf", "Arial.ttf"], # Common sans-serif fonts
+        "font_size": 42,
+        "text_shadow_offset": (2, 2),
+    },
+
+    # --- Shapes & Borders ---
+    # Defines properties for drawing shapes, ensuring a consistent aesthetic.
+    "shapes": {
+        "circle_width": 4,          # Width of the main highlight circle
+        "glow_multiplier": 3,       # Multiplier for the glow effect width
+        "title_box_padding": 15,    # Padding around the title text
+        "title_box_radius": 12,     # Corner radius for the title background
+    },
+}
 
 # =============================================================================
-# 2. HELPER FUNCTIONS FOR ADVANCED DRAWING
-# Encapsulated logic for creating professional visual effects.
+# == Helper Functions
 # =============================================================================
 
-def load_font(preferred_fonts, size):
-    """Attempts to load a font from a list of preferred paths, with a fallback."""
-    for font_name in preferred_fonts:
+def find_font(preferred_list, size):
+    """
+    Searches for a font from a preferred list and falls back to a default.
+    This improves cross-platform compatibility.
+    
+    Args:
+        preferred_list (list): A list of font file names to search for.
+        size (int): The desired font size.
+
+    Returns:
+        ImageFont: A Pillow font object.
+    """
+    for font_name in preferred_list:
         try:
             return ImageFont.truetype(font_name, size)
         except IOError:
-            continue
-    print(f"Warning: Preferred fonts not found. Falling back to default.")
-    return ImageFont.load_default()
-
-def draw_text_with_shadow(draw, pos, text, font, fill_color, shadow_color, offset, anchor="lt"):
-    """Draws text with a subtle drop shadow for better readability."""
-    shadow_pos = (pos[0] + offset[0], pos[1] + offset[1])
-    draw.text(shadow_pos, text, font=font, fill=shadow_color, anchor=anchor)
-    draw.text(pos, text, font=font, fill=fill_color, anchor=anchor)
-
-def draw_glowing_ellipse(draw, xy, color, glow_color, width, glow_layers):
-    """Draws an ellipse with a soft outer glow."""
-    # CRITICAL: Preserve original coordinate values for the main shape
-    original_xy = xy
+            continue  # Font not found, try the next one
     
-    # Draw glow layers first, from largest and most transparent to smallest
-    for i in range(glow_layers, 0, -1):
-        glow_width = width + i * 2
-        # Use an alpha that decreases with distance for a soft falloff
-        glow_alpha = int(70 / (i + 1)) 
-        current_glow_color = glow_color[:3] + (glow_alpha,)
-        
-        # Expand the bounding box for the glow effect
-        glow_xy = [
-            (xy[0][0] - i*2, xy[0][1] - i*2),
-            (xy[1][0] + i*2, xy[1][1] + i*2)
-        ]
-        draw.ellipse(glow_xy, outline=current_glow_color, width=glow_width)
-        
-    # Draw the main, sharp ellipse on top
-    draw.ellipse(original_xy, outline=color, width=width)
+    print(f"Warning: None of the preferred fonts {preferred_list} were found. "
+          "Falling back to the default PIL font.")
+    # The default font is very small, so we use a larger size for it if needed
+    try:
+        # load_default() in newer Pillow versions can take a size argument
+        return ImageFont.load_default(size=size//2)
+    except TypeError:
+        return ImageFont.load_default()
+
+
+def draw_glow_ellipse(draw_context, xy, primary_color, glow_color, width, glow_multiplier):
+    """
+    Draws an ellipse with a professional-looking outer glow effect.
+    This is achieved by drawing a wider, semi-transparent ellipse behind the main one.
+
+    Args:
+        draw_context (ImageDraw): The Pillow drawing context.
+        xy (tuple): The bounding box for the ellipse.
+        primary_color (tuple): The color of the main outline.
+        glow_color (tuple): The color of the outer glow.
+        width (int): The width of the main outline.
+        glow_multiplier (float): How much wider the glow outline should be.
+    """
+    # 1. Draw the outer glow: wider and more transparent
+    glow_width = int(width * glow_multiplier)
+    draw_context.ellipse(xy, outline=glow_color, width=glow_width)
+    
+    # 2. Draw the main highlight circle on top: sharper and more opaque
+    draw_context.ellipse(xy, outline=primary_color, width=width)
 
 # =============================================================================
-# 3. MAIN OVERLAY CREATION FUNCTION
-# Integrates styling and helpers to produce the final polished overlay.
+# == Main Drawing Function
 # =============================================================================
 
 def create_spot_the_difference_overlay():
     """
-    Creates a professionally designed Pillow overlay to highlight 5 differences.
+    Creates a professionally styled Pillow (PIL) overlay to highlight the 5 
+    differences in the provided screenshot.
     """
-    # --- Canvas Setup (PRESERVED) ---
-    width, height = 1920, 1080
-    
-    # Create the final transparent overlay
-    overlay = Image.new('RGBA', (width, height), (0, 0, 0, 0))
-    
-    # Add the semi-transparent background tint directly to the final overlay
-    # This ensures it's behind the anti-aliased elements.
-    draw_base = ImageDraw.Draw(overlay)
-    draw_base.rectangle([0, 0, width, height], fill=Style.PALETTE["background_tint"])
+    # --- Canvas Definition (PRESERVED) ---
+    canvas_width = 1920
+    canvas_height = 1080
+    canvas_size = (canvas_width, canvas_height)
 
-    # --- Anti-Aliasing Setup ---
-    # Create an upscaled canvas for drawing high-quality shapes
-    UPSCALE = Style.UPSCALE_FACTOR
-    up_width, up_height = width * UPSCALE, height * UPSCALE
-    hd_canvas = Image.new('RGBA', (up_width, up_height), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(hd_canvas)
+    # Create a new transparent image for the overlay.
+    # Using 'LANCZOS' resampling on a larger canvas and then resizing can
+    # produce smoother anti-aliasing, but for simplicity and performance,
+    # we will draw directly on the final canvas size.
+    overlay = Image.new('RGBA', canvas_size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
 
-    # --- Title and Header ---
-    title_font = load_font(Style.FONT_PATHS, Style.TITLE_FONT_SIZE * UPSCALE)
-    title_text = "Here are the 5 differences!"
+    # --- Difference Coordinates (PRESERVED) ---
+    # These coordinates are unchanged as per requirements.
+    diff1_coords = (435, 305, 485, 355)
+    diff2_coords = (1020, 295, 1070, 345)
+    diff3_coords = (418, 535, 458, 575)
+    diff4_coords = (610, 565, 660, 615)
+    diff5_coords = (575, 650, 605, 680)
+    differences = [diff1_coords, diff2_coords, diff3_coords, diff4_coords, diff5_coords]
     
-    # Calculate title position (using original dimensions for logic PRESERVATION)
-    temp_draw = ImageDraw.Draw(Image.new('RGBA', (1,1))) # Dummy draw for textbbox
-    title_bbox = temp_draw.textbbox((0, 0), title_text, font=load_font(Style.FONT_PATHS, Style.TITLE_FONT_SIZE))
-    
-    title_w = title_bbox[2] - title_bbox[0]
-    title_h = title_bbox[3] - title_bbox[1]
-    title_x = (width - title_w) / 2
-    title_y = 70
-    
-    # Define coordinates for the rounded rectangle background (upscaled)
-    padding = 20
-    rect_x1 = (title_x - padding) * UPSCALE
-    rect_y1 = (title_y - padding) * UPSCALE
-    rect_x2 = (title_x + title_w + padding) * UPSCALE
-    rect_y2 = (title_y + title_h + padding) * UPSCALE
-    
-    # Draw the shadow for the title box
-    shadow_offset_up = (Style.SHADOW_OFFSET[0] * UPSCALE, Style.SHADOW_OFFSET[1] * UPSCALE)
-    draw.rounded_rectangle(
-        (rect_x1 + shadow_offset_up[0], rect_y1 + shadow_offset_up[1], rect_x2 + shadow_offset_up[0], rect_y2 + shadow_offset_up[1]),
-        radius=Style.TITLE_RECT_RADIUS * UPSCALE,
-        fill=Style.PALETTE["shadow_dark"]
-    )
-    # Draw the main title box
-    draw.rounded_rectangle(
-        (rect_x1, rect_y1, rect_x2, rect_y2),
-        radius=Style.TITLE_RECT_RADIUS * UPSCALE,
-        fill=Style.PALETTE["title_background"]
-    )
-    
-    # Draw the title text with its shadow
-    draw_text_with_shadow(
-        draw,
-        (width / 2 * UPSCALE, title_y * UPSCALE),
-        title_text,
-        font=title_font,
-        fill_color=Style.PALETTE["text_primary"],
-        shadow_color=Style.PALETTE["shadow_dark"],
-        offset=shadow_offset_up,
-        anchor="mt"
-    )
+    # --- Drawing Annotations ---
 
-    # --- Highlight Differences with Glowing Circles ---
-    # Define circle style from the configuration
-    circle_outline_color = Style.PALETTE["primary_highlight"]
-    circle_glow_color = Style.PALETTE["glow_color"]
-    circle_width = Style.CIRCLE_WIDTH * UPSCALE
+    # 1. Apply a stylish background dim to enhance focus
+    draw.rectangle([(0, 0), canvas_size], fill=STYLE_CONFIG["colors"]["background_dim"])
 
-    # Define coordinates for the 5 differences (PRESERVED)
-    # The coordinates are multiplied by the upscale factor just before drawing.
-    diff_coords = [
-        [(465, 315), (505, 355)],  # 1. Worm on the roof
-        [(1135, 315), (1185, 355)], # 2. Butterfly in the sky
-        [(1205, 535), (1245, 575)], # 3. Pattern on the window
-        [(625, 625), (680, 675)],  # 4. Purple mushrooms
-        [(445, 685), (475, 715)],  # 5. White pebble on grass
-    ]
-
-    for coords in diff_coords:
-        # Upscale coordinates for high-resolution drawing
-        upscaled_coords = [
-            (coords[0][0] * UPSCALE, coords[0][1] * UPSCALE),
-            (coords[1][0] * UPSCALE, coords[1][1] * UPSCALE)
-        ]
-        draw_glowing_ellipse(
-            draw, 
-            upscaled_coords, 
-            circle_outline_color,
-            circle_glow_color,
-            circle_width, 
-            Style.CIRCLE_GLOW_LAYERS
+    # 2. Draw a glowing circle around each difference
+    for coords in differences:
+        draw_glow_ellipse(
+            draw_context=draw,
+            xy=coords,
+            primary_color=STYLE_CONFIG["colors"]["highlight_primary"],
+            glow_color=STYLE_CONFIG["colors"]["highlight_glow"],
+            width=STYLE_CONFIG["shapes"]["circle_width"],
+            glow_multiplier=STYLE_CONFIG["shapes"]["glow_multiplier"]
         )
 
-    # --- Final Composition ---
-    # Downscale the high-resolution canvas to the original size with anti-aliasing
-    final_elements = hd_canvas.resize((width, height), Image.Resampling.LANCZOS)
+    # --- Adding Enhanced Explanatory Text ---
     
-    # Composite the anti-aliased elements over the base background
-    overlay.alpha_composite(final_elements, (0, 0))
+    # 3. Load a professional font with a fallback mechanism
+    font = find_font(
+        preferred_list=STYLE_CONFIG["typography"]["preferred_fonts"],
+        size=STYLE_CONFIG["typography"]["font_size"]
+    )
+
+    # 4. Prepare text and its position (PRESERVED)
+    title_text = "Here are the 5 differences:"
+    text_position = (760, 180)
     
+    # 5. Create a modern, rounded background for the text
+    text_bbox = draw.textbbox(text_position, title_text, font=font)
+    padding = STYLE_CONFIG["shapes"]["title_box_padding"]
+    radius = STYLE_CONFIG["shapes"]["title_box_radius"]
+    
+    bg_bbox = (
+        text_bbox[0] - padding,
+        text_bbox[1] - padding,
+        text_bbox[2] + padding,
+        text_bbox[3] + padding
+    )
+    
+    draw.rounded_rectangle(
+        bg_bbox,
+        radius=radius,
+        fill=STYLE_CONFIG["colors"]["title_background"]
+    )
+
+    # 6. Draw text with a subtle shadow for improved readability and depth
+    shadow_offset = STYLE_CONFIG["typography"]["text_shadow_offset"]
+    shadow_pos = (text_position[0] + shadow_offset[0], text_position[1] + shadow_offset[1])
+    
+    draw.text(
+        shadow_pos,
+        title_text,
+        fill=STYLE_CONFIG["colors"]["text_shadow"],
+        font=font
+    )
+    draw.text(
+        text_position,
+        title_text,
+        fill=STYLE_CONFIG["colors"]["text_primary"],
+        font=font
+    )
+
     # --- Save the Overlay (PRESERVED) ---
     if not os.path.exists('temp'):
         os.makedirs('temp')
-    overlay_path = "temp/overlay.png"
-    overlay.save(overlay_path)
-    print(f"Professionally enhanced overlay saved to {overlay_path}")
 
-# Run the function to create the overlay
+    overlay.save("temp/overlay.png")
+    print(f"Enhanced overlay saved to temp/overlay.png")
+
+# Run the function to generate the professional overlay
 if __name__ == "__main__":
     create_spot_the_difference_overlay()

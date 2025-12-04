@@ -15,3 +15,7 @@ Instructions on how to use the project.
 ## Contributing
 
 Guidelines for contributing to the project.
+
+Run
+
+python -m airis_frontend_v3.main

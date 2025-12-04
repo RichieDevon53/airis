@@ -1,7 +1,10 @@
 from app.utils.prepareimage import prepare_images
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableLambda
-# from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field
+from transformers import pipeline
+from typing import List
+from PIL import Image
 import pyautogui
 import subprocess
 import re
@@ -49,59 +52,133 @@ import sys
 # canvas pixel size : {canvas_size}
 # """
 
+class ObjectListOutput(BaseModel):
+    objects: List[str] = Field(description="List of detected object names")
+
+FIND_OBJECT_PROMPT = """
+You are an Image Analysis Specialist agent that converts user requests into precise object detection queries. Your job is to analyze what the user wants to highlight in an image and output a single, perfectly formatted search string that will be used with an object detection model (OWL-ViT).
+
+### CRITICAL RULES:
+1. **ALWAYS** use this exact format: "the [object] in the screenshot"
+2. **NEVER** output multiple queries or explanations - only the search string
+3. **REMOVE** any quotes, brackets, or special characters from the user's request
+4. **KEEP** colors, sizes, and descriptive words that help identify the object
+5. **IF** the user mentions multiple objects, pick the MOST IMPORTANT one based on context
+
+### QUERY FORMULA (MEMORIZE THIS):
+✅ PERFECT: "the [exact object description] in the screenshot"
+❌ BAD: "[object]" or "the [object]" or "[object] in image"
+
+### EXAMPLES:
+User: "Can you highlight the mushroom on the left?"
+Output: "the mushroom on the left in the screenshot"
+
+User: "the blue submit button"
+Output: "the blue submit button in the screenshot"
+
+User: "find the clock that's different"
+Output: "the clock that's different in the screenshot"
+
+User: "this butterfly"
+Output: "the butterfly in the screenshot"
+
+User: "highlight 'Submit' text"
+Output: "the Submit text in the screenshot"
+
+User: "the red icon vs green icon"
+Output: "the red icon in the screenshot"  (pick most important)
+
+User: "what's wrong here?"
+Output: "the error in the screenshot"  (infer the most likely object)
+
+### SPECIAL CASES:
+- For text: "the [text content] text in the screenshot"  
+  Example: "the Save text in the screenshot"
+- For differences: "the [object] that is different in the screenshot"
+- For buttons: "the [button text] button in the screenshot"
+- If unsure: "the main object in the screenshot"
+
+### OUTPUT FORMAT:
+- ONLY output the search string
+- NO quotes, NO punctuation at end, NO explanations
+- EXACTLY one line of text
+
+You are an expert at understanding user intent and converting it to perfect detection queries. Every query you generate must follow the formula exactly.
+"""
+
 SYSTEM_PROMPT = """
 You are an educational AI that creates interactive {module} overlays to explain and highlight specific parts of screenshots.
 
 Your task is to:
-1. Analyze the provided screenshot image pixel by pixel and the user's question
-2. Identify the specific pixel coordinates and areas the user is asking about in the provided screenshot
+1. Analyze the provided screenshot image pixel by pixel, the user's question, AND any provided object detection data
+2. Identify the specific pixel coordinates and areas the user is asking about using BOTH visual analysis AND object detection coordinates
 3. Create a full-screen {module} overlay that matches the exact canvas size: {canvas_size}
-4. make the background of overlay translusive
-5. Add visual annotations with precise pixel positioning based on the screenshot analysis
+4. Make the background of overlay translucent
+5. Add visual annotations with precise pixel positioning based on screenshot analysis AND object detection data
 6. Include clear, educational explanations positioned appropriately
 
 CRITICAL REQUIREMENTS:
 - The {module} window MUST be exactly {canvas_size} pixels (full canvas size)
 - DO NOT crop or resize the overlay - use the full canvas dimensions
-- Analyze the screenshot to determine exact pixel coordinates for annotations
+- Use object detection coordinates when available to ensure pixel-perfect accuracy
 - The background image should fill the entire canvas without cropping
-- All annotations must be positioned using precise pixel coordinates based on your analysis of the screenshot
-- Make sure every text have a solid background as a contrast
+- All annotations must be positioned using precise pixel coordinates from analysis OR object detection data
+- Make sure every text has a solid background as a contrast
+
+OBJECT DETECTION DATA INTEGRATION:
+{coordinates_info}
+
+Priority rules for object detection data:
+1. HIGH CONFIDENCE (≥0.7): Trust coordinates completely, use exact bbox/center
+2. MEDIUM CONFIDENCE (0.4-0.69): Use coordinates as primary reference but verify with visual analysis
+3. LOW CONFIDENCE (<0.4): Use only as secondary reference, rely primarily on visual analysis
+4. For multiple detections of same object: Select highest confidence OR use ensemble average if similar confidence
 
 Guidelines for creating the overlay:
 - Set {module} window size to exactly {canvas_size}
 - Load and scale background image to fill entire canvas: {module}.transform.scale(background, {canvas_size})
 - The overlay should be semi-transparent so the original screenshot shows through
-- Analyze the screenshot content to determine where UI elements, text, or areas of interest are located
-- Use precise pixel coordinates for all annotations based on your visual analysis
+- When object detection data is available:
+  * Use bbox coordinates for highlighting entire objects
+  * Use center coordinates for placing annotation pointers and text
+  * Consider object area to determine appropriate annotation size
+- When NO object detection data is available, perform detailed visual analysis to estimate coordinates
 - Use contrasting colors for annotations to ensure visibility against the screenshot background
 - Position text and explanations in areas that don't obscure important screenshot content
 - Always save the overlay as png in "temp\\overlay.png"
 - Do not open image using Image.open() in this code, just save it
 
 Coordinate Analysis Instructions:
-- Carefully examine the screenshot to identify the exact locations of elements being discussed
-- Estimate pixel coordinates based on the screenshot dimensions and element positions
-- For a {canvas_size} canvas, calculate positions as percentages and convert to pixels
-- Consider typical UI layouts and element positioning when determining coordinates
+- FIRST check if object detection data is provided for the requested elements
+- IF object detection data exists:
+  * Use the highest confidence detection for each unique object
+  * Calculate center points: center_x = (x1 + x2) / 2, center_y = (y1 + y2) / 2
+  * Use bbox for rectangular highlights, center for circular markers and text placement
+- IF NO object detection data exists:
+  * Carefully examine the screenshot to identify exact locations of elements
+  * Estimate pixel coordinates based on screenshot dimensions and element positions
+  * For {canvas_size} canvas, calculate positions as percentages and convert to pixels
+  * Consider typical UI layouts and element positioning when determining coordinates
+- ALWAYS verify object detection coordinates make sense with the screenshot content
 - Ensure annotations point to the correct locations in the screenshot
 
 Annotation positioning:
-- Analyze the screenshot to determine where specific elements are located
-- Use pixel-perfect positioning for circles, arrows, rectangles, and text
-- Consider the layout and structure visible in the screenshot
-- Position explanatory text in clear areas that don't obstruct important content
-- Use relative positioning calculations based on canvas size
+- For objects with detection data: Use bbox[0], bbox[1], bbox[2], bbox[3] for rectangle coordinates
+- For text placement: Use center[0], center[1] as reference point, offset text to avoid overlap
+- For arrows/pointers: Draw from text position to object center or edge
+- Consider object size when determining annotation size and text placement
+- Position explanatory text in clear areas adjacent to detected objects
+- Use relative positioning calculations based on canvas size when detection data is unavailable
 
 The {module} code should:
-1. Create a high definition window exactly double the size of {canvas_size} pixels
+1. Create a high definition window exactly {canvas_size} pixels
 2. Load and scale the background to fill the entire canvas
-3. Analyze screenshot content to determine precise annotation coordinates
-4. Draw annotations at calculated pixel positions
-5. Provide educational explanations positioned appropriately
+3. Process object detection data if provided, otherwise perform visual coordinate analysis
+4. Draw annotations at calculated pixel positions (prefer detection data when available)
+5. Provide educational explanations positioned appropriately near detected objects
 6. Run until user closes the window
 
-IMPORTANT: The final overlay must cover the entire canvas without cropping. Analyze the screenshot carefully to position all elements accurately based on what you can see in the image.
+IMPORTANT: The final overlay must cover the entire canvas without cropping. Prioritize object detection coordinates when confidence is high (≥0.7), otherwise combine with visual analysis for maximum accuracy. Always validate that detected coordinates make sense within the screenshot context.
 """
 
 # Directly write the complete {module} code without any markdown formatting!
@@ -277,20 +354,20 @@ class BoardChain:
         self.secondary_llm = secondary_llm
 
     def __call__(self, input: str):
-        
         self.chain = (
-            BoardChain.get_base_prompt() 
+            BoardChain.get_base_prompt(FIND_OBJECT_PROMPT)
+            | self.secondary_llm.with_structured_output(ObjectListOutput)
+            | RunnableLambda(lambda x: {"input": input, "coordinates_info": self._find_coordinates_info(x.objects), "canvas_size": str(pyautogui.size()), "module": "Pillow (PIL)"})  # Format output for next prompt
+            | BoardChain.get_base_prompt() 
             | self.secondary_llm
             | {"input": RunnableLambda(lambda x: self._parsing_python_and_exec_overlay(x.content, executing=False))}
             | BoardChain.get_base_prompt(SYSTEM_PROMPT_OPTIMIZE_CODE, with_image=False)
             | self.secondary_llm
             | RunnableLambda(lambda x: self._parsing_python_and_exec_overlay(x.content, executing=True))
-            )
+        )
         res = self.chain.invoke(
             {
             "input": input, 
-            "canvas_size": str(pyautogui.size()),
-            "module": "Pillow (PIL)"
             }
         )
         return res
@@ -326,8 +403,34 @@ class BoardChain:
             return python_code
                 
         return "No Python code found in the response via parser."
-
-        
+    
+    @staticmethod
+    def _find_coordinates_info(objects: List[str]):
+        detector = pipeline('zero-shot-object-detection', model='IDEA-Research/grounding-dino-base', use_fast=True)
+        image = Image.open("local/temp.png").convert('RGB')
+        string_result = ""
+        for obj in objects:
+            results = detector(
+                image,
+                candidate_labels=[obj],  # The object the user is asking about
+                threshold=0.1  # Lower threshold for UI elements
+            )
+            
+            for result in results:
+                bbox = result['box']
+                coords = (
+                    int(bbox['xmin']), 
+                    int(bbox['ymin']), 
+                    int(bbox['xmax']), 
+                    int(bbox['ymax'])
+                )
+                if result['score'] > 0.2:
+                    string_result += f"Object: {result['label']}, Confidence: {result['score']}, Coords: {coords}\n"
+                
+        if string_result:
+            print("Coordinates Info:\n", string_result)
+            return string_result
+        return "No coordinates found."
 
     @staticmethod
     def get_base_prompt(prompt = SYSTEM_PROMPT, with_image: bool = True):
