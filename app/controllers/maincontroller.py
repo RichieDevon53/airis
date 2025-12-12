@@ -16,8 +16,8 @@ class maincontroller:
         self.question_chain = QuestionChain(gen_ai.gemini(model="gemini-2.5-flash-lite"))
         self.instruction_chain = EnhancedInstructionChain(self.llm)
         self.board_chain = BoardChain(
-            primary_llm=gen_ai.gemini(model="gemini-2.5-pro"),
-            secondary_llm=gen_ai.gemini(model="gemini-2.5-pro")
+            primary_llm=gen_ai.gemini(model="gemini-2.5-flash"),
+            secondary_llm=gen_ai.gemini(model="gemini-2.5-flash")
             )
         # self.board_chain = BoardChain(self.gen_ai.pixtral())
         # self.board_chain = BoardChain(self.gen_ai.mini4o(max_tokens=16000))

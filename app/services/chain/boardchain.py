@@ -55,55 +55,31 @@ import sys
 class ObjectListOutput(BaseModel):
     objects: List[str] = Field(description="List of detected object names")
 
-FIND_OBJECT_PROMPT = """
-You are an Image Analysis Specialist agent that converts user requests into precise object detection queries. Your job is to analyze what the user wants to highlight in an image and output a single, perfectly formatted search string that will be used with an object detection model (OWL-ViT).
+FIND_OBJECTS_PROMPT = """
+You are an Image Analysis Specialist that converts user requests into precise object detection queries. Output a JSON array of simplified object names for detection.
 
-### CRITICAL RULES:
-1. **ALWAYS** use this exact format: "the [object] in the screenshot"
-2. **NEVER** output multiple queries or explanations - only the search string
-3. **REMOVE** any quotes, brackets, or special characters from the user's request
-4. **KEEP** colors, sizes, and descriptive words that help identify the object
-5. **IF** the user mentions multiple objects, pick the MOST IMPORTANT one based on context
+### CORE RULES:
+1. **OUTPUT FORMAT**: Minified JSON array of strings (e.g., `["object1","object2"]`)
+2. **SIMPLIFY NAMES**:
+   - REMOVE: "the", "a", "an", "in the screenshot", quotes, brackets
+   - KEEP: Colors, sizes, positions, text content, and key descriptors
+   - NATURAL LANGUAGE: Use prepositions like "with", "on", "next to" for relationships
+3. **MULTIPLE OBJECTS**:
+   - Split combined requests ("X and Y" → separate entries)
+   - Treat color/position variants as distinct objects
+   - For comparisons ("vs", "different"), include all variants
+4. **SPECIAL CASES**:
+   - Text elements: `[text content] text` (e.g., "Submit text")
+   - Buttons: `[button text] button` (e.g., "Cancel button")
+   - Ambiguous requests: "main object" or "error indicator"
 
-### QUERY FORMULA (MEMORIZE THIS):
-✅ PERFECT: "the [exact object description] in the screenshot"
-❌ BAD: "[object]" or "the [object]" or "[object] in image"
+### NATURAL LANGUAGE FORMULA:
+✅ GOOD: "green sprout with red hat", "left mushroom", "error message"
+❌ BAD: "the green sprout", "mushroom in screenshot", "a button"
 
-### EXAMPLES:
-User: "Can you highlight the mushroom on the left?"
-Output: "the mushroom on the left in the screenshot"
-
-User: "the blue submit button"
-Output: "the blue submit button in the screenshot"
-
-User: "find the clock that's different"
-Output: "the clock that's different in the screenshot"
-
-User: "this butterfly"
-Output: "the butterfly in the screenshot"
-
-User: "highlight 'Submit' text"
-Output: "the Submit text in the screenshot"
-
-User: "the red icon vs green icon"
-Output: "the red icon in the screenshot"  (pick most important)
-
-User: "what's wrong here?"
-Output: "the error in the screenshot"  (infer the most likely object)
-
-### SPECIAL CASES:
-- For text: "the [text content] text in the screenshot"  
-  Example: "the Save text in the screenshot"
-- For differences: "the [object] that is different in the screenshot"
-- For buttons: "the [button text] button in the screenshot"
-- If unsure: "the main object in the screenshot"
-
-### OUTPUT FORMAT:
-- ONLY output the search string
-- NO quotes, NO punctuation at end, NO explanations
-- EXACTLY one line of text
-
-You are an expert at understanding user intent and converting it to perfect detection queries. Every query you generate must follow the formula exactly.
+### OUTPUT REQUIREMENTS:
+- ONLY output minified JSON array
+- NO prefixes/suffixes, NO explanations
 """
 
 SYSTEM_PROMPT = """
@@ -124,61 +100,82 @@ CRITICAL REQUIREMENTS:
 - The background image should fill the entire canvas without cropping
 - All annotations must be positioned using precise pixel coordinates from analysis OR object detection data
 - Make sure every text has a solid background as a contrast
-
-OBJECT DETECTION DATA INTEGRATION:
-{coordinates_info}
-
-Priority rules for object detection data:
-1. HIGH CONFIDENCE (≥0.7): Trust coordinates completely, use exact bbox/center
-2. MEDIUM CONFIDENCE (0.4-0.69): Use coordinates as primary reference but verify with visual analysis
-3. LOW CONFIDENCE (<0.4): Use only as secondary reference, rely primarily on visual analysis
-4. For multiple detections of same object: Select highest confidence OR use ensemble average if similar confidence
+- Always use the exact coordinates provided by object detection
+- <<NEW>> BEFORE USING ANY COORDINATES: Calculate scaling factors between original screenshot dimensions and {canvas_size}:
+      scale_x = canvas_size[0] / original_image_width
+      scale_y = canvas_size[1] / original_image_height
+  THEN scale EVERY detection coordinate: (x * scale_x, y * scale_y)
+- <<NEW>> HARD CLAMP all coordinates to [0, canvas_size] bounds after scaling
 
 Guidelines for creating the overlay:
 - Set {module} window size to exactly {canvas_size}
-- Load and scale background image to fill entire canvas: {module}.transform.scale(background, {canvas_size})
-- The overlay should be semi-transparent so the original screenshot shows through
+- Load background image WITHOUT RESIZING to preserve original dimensions
+- <<ENHANCED>> Background rendering protocol:
+    1. Create transparent canvas at {canvas_size}
+    2. Calculate aspect ratio preservation:
+        target_ratio = canvas_size[0] / canvas_size[1]
+        img_ratio = original_width / original_height
+    3. IF |target_ratio - img_ratio| > 0.05:
+          - Resize screenshot to fit canvas while preserving aspect ratio (letterboxing)
+          - Recalculate coordinate offsets using letterbox padding
+    4. Paste background centered on canvas with translucent overlay (alpha=180)
 - When object detection data is available:
-  * Use bbox coordinates for highlighting entire objects
-  * Use center coordinates for placing annotation pointers and text
-  * Consider object area to determine appropriate annotation size
+  * Use ONLY detections with confidence ≥0.7
+  * <<NEW>> Scale bbox coordinates FIRST using factors from CRITICAL REQUIREMENTS
+  * Calculate center points from SCALED coordinates: 
+        center_x = (scaled_x1 + scaled_x2) / 2
+        center_y = (scaled_y1 + scaled_y2) / 2
+  * Use bbox for rectangular highlights, center for circular markers and text placement
 - When NO object detection data is available, perform detailed visual analysis to estimate coordinates
-- Use contrasting colors for annotations to ensure visibility against the screenshot background
-- Position text and explanations in areas that don't obscure important screenshot content
+- Use contrasting colors for annotations (text BG: #0F0F0F with 220 alpha, text: #FFFFFF)
+- Position text in clear areas using scaled coordinates as anchors
 - Always save the overlay as png in "temp\\overlay.png"
 - Do not open image using Image.open() in this code, just save it
 
 Coordinate Analysis Instructions:
 - FIRST check if object detection data is provided for the requested elements
 - IF object detection data exists:
-  * Use the highest confidence detection for each unique object
-  * Calculate center points: center_x = (x1 + x2) / 2, center_y = (y1 + y2) / 2
-  * Use bbox for rectangular highlights, center for circular markers and text placement
+  * Filter to keep ONLY detections with confidence ≥0.7
+  * <<MANDATORY>> Extract original screenshot dimensions BEFORE scaling coordinates
+  * Calculate scaling factors: 
+        scale_x = canvas_size[0] / original_width
+        scale_y = canvas_size[1] / original_height
+  * Scale ALL coordinates: 
+        [x1, y1, x2, y2] = [coord * scale_x/scale_y appropriately]
+  * Recalculate center from scaled bbox
+  * CLAMP values: max(0, min(canvas_size[0], x)), max(0, min(canvas_size[1], y))
+  * Validate: If scaled bbox area < 0.1% of canvas, discard detection
 - IF NO object detection data exists:
-  * Carefully examine the screenshot to identify exact locations of elements
-  * Estimate pixel coordinates based on screenshot dimensions and element positions
-  * For {canvas_size} canvas, calculate positions as percentages and convert to pixels
-  * Consider typical UI layouts and element positioning when determining coordinates
-- ALWAYS verify object detection coordinates make sense with the screenshot content
-- Ensure annotations point to the correct locations in the screenshot
+  * Estimate positions as percentages of original image dimensions
+  * Convert to canvas pixels using scaling factors above
+- ALWAYS verify scaled coordinates align with visual content in screenshot
 
-Annotation positioning:
-- For objects with detection data: Use bbox[0], bbox[1], bbox[2], bbox[3] for rectangle coordinates
-- For text placement: Use center[0], center[1] as reference point, offset text to avoid overlap
-- For arrows/pointers: Draw from text position to object center or edge
-- Consider object size when determining annotation size and text placement
-- Position explanatory text in clear areas adjacent to detected objects
-- Use relative positioning calculations based on canvas size when detection data is unavailable
+Object detection data:
+{coordinates_info}
+
+Annotation positioning (SCALED COORDINATES ONLY):
+- Bounding boxes: Use scaled_bbox[0], scaled_bbox[1], scaled_bbox[2], scaled_bbox[3]
+- Text placement: 
+      text_x = max(10, min(canvas_size[0]-200, scaled_center_x - 100))
+      text_y = scaled_bbox[1] - 30  # Above object
+  IF text_y < 20: text_y = scaled_bbox[3] + 10  # Below if top overflow
+- Arrows: Draw line from (text_x+90, text_y+15) to (scaled_center_x, scaled_center_y)
+- Text background: Solid rectangle (text_x-5, text_y-5, text_x+200, text_y+40)
 
 The {module} code should:
-1. Create a high definition window exactly {canvas_size} pixels
-2. Load and scale the background to fill the entire canvas
-3. Process object detection data if provided, otherwise perform visual coordinate analysis
-4. Draw annotations at calculated pixel positions (prefer detection data when available)
-5. Provide educational explanations positioned appropriately near detected objects
-6. Run until user closes the window
+1. Create transparent RGBA canvas at EXACT {canvas_size}
+2. Load original screenshot to get dimensions (DO NOT RESIZE YET)
+3. <<NEW>> Calculate scaling factors and letterbox parameters FIRST
+4. Process object detection data using scaled/clamped coordinates
+5. Draw annotations ONLY using scaled coordinates
+6. Save ONLY to "temp\\overlay.png" with no display operations
 
-IMPORTANT: The final overlay must cover the entire canvas without cropping. Prioritize object detection coordinates when confidence is high (≥0.7), otherwise combine with visual analysis for maximum accuracy. Always validate that detected coordinates make sense within the screenshot context.
+IMPORTANT: 
+- Prioritize scaled object detection coordinates when confidence ≥0.7
+- NEVER use raw detection coordinates without scaling
+- Letterbox background image if aspect ratios differ >5%
+- All text MUST have solid background rectangles
+- Final output must be exactly {canvas_size} pixels
 """
 
 # Directly write the complete {module} code without any markdown formatting!
@@ -355,7 +352,7 @@ class BoardChain:
 
     def __call__(self, input: str):
         self.chain = (
-            BoardChain.get_base_prompt(FIND_OBJECT_PROMPT)
+            BoardChain.get_base_prompt(FIND_OBJECTS_PROMPT)
             | self.secondary_llm.with_structured_output(ObjectListOutput)
             | RunnableLambda(lambda x: {"input": input, "coordinates_info": self._find_coordinates_info(x.objects), "canvas_size": str(pyautogui.size()), "module": "Pillow (PIL)"})  # Format output for next prompt
             | BoardChain.get_base_prompt() 
@@ -409,6 +406,7 @@ class BoardChain:
         detector = pipeline('zero-shot-object-detection', model='IDEA-Research/grounding-dino-base', use_fast=True)
         image = Image.open("local/temp.png").convert('RGB')
         string_result = ""
+        print("Objects to find:", objects)
         for obj in objects:
             results = detector(
                 image,
@@ -416,16 +414,20 @@ class BoardChain:
                 threshold=0.1  # Lower threshold for UI elements
             )
             
-            for result in results:
-                bbox = result['box']
+            if results:  # Check if any results were found for this object
+                # Find the result with the highest score for this object
+                best_result = max(results, key=lambda x: x['score'])
+                
+                bbox = best_result['box']
                 coords = (
                     int(bbox['xmin']), 
                     int(bbox['ymin']), 
                     int(bbox['xmax']), 
                     int(bbox['ymax'])
                 )
-                if result['score'] > 0.2:
-                    string_result += f"Object: {result['label']}, Confidence: {result['score']}, Coords: {coords}\n"
+                
+                # Add the best result regardless of score (but only if it exists)
+                string_result += f"{best_result['label']} | {coords}\n"
                 
         if string_result:
             print("Coordinates Info:\n", string_result)
