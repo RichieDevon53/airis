@@ -3,7 +3,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 class QuestionOutput(BaseModel):
-    short_answer: str = Field(..., description="The short answer (max 5 words) to the user's question based on the provided image.")
+    short_answer: str = Field(..., description="The short answer (max 5 words) to the user's question based on the provided image, maximum of 64 character.")
     explanation: str = Field(..., description="the explanation of the short answer maximumn of 256 characters.")
     
 SYSTEM_PROMPT="""
@@ -34,7 +34,7 @@ class QuestionChain:
                     "user",
                     [
                         {"type": "text", "text": "{input}"},
-                        prepare_images()
+                        prepare_images(quality=50)
                     ]
                 ),
             ]

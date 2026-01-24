@@ -99,6 +99,7 @@ class GlassEffectTrayApp:
         except queue.Empty:
             pass
         except Exception as e:
+            raise e
             print(f"Error processing command: {e}")
         
         if self.running:

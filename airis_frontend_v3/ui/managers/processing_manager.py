@@ -44,13 +44,13 @@ class ProcessingManager:
         if self.app.tray_manager.tray_icon:
             if is_error:
                 self.app.tray_manager.show_notification(
-                text,
+                text[:256],
                 "Oops, something went wrong."
             )
             else:
                 self.app.tray_manager.show_notification(
-                    text["explanation"],
-                    text["short_answer"]
+                    text["explanation"][:255],
+                    text["short_answer"][:64]
                 )
             
     def show_processing_animation(self):

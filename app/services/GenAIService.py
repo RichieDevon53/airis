@@ -1,11 +1,16 @@
 from config.setting import env
 from langchain_google_genai import ChatGoogleGenerativeAI
-
+from config.credentials import google_credential
 class GenAiService:
 
-    def gemini(self, model: str = env.gemini_model):
-        import os
-        os.environ["GOOGLE_API_KEY"] = "AIzaSyBZxAarV2rqR_934ekw-YkOICxDCA5-fTc"
-        return ChatGoogleGenerativeAI(model=model)
-    
+    def gemini(self, model: str):
+        return ChatGoogleGenerativeAI(
+            model=model, 
+            temperature=0, 
+            project=env.GOOGLE_PROJECT_NAME, 
+            location=env.GOOGLE_LOCATION_NAME,
+            credentials=google_credential(),
+            thinking_budget=0,
+        )
+
 gen_ai = GenAiService()
